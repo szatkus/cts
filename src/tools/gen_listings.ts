@@ -9,8 +9,8 @@ import { crawl } from './crawl.js';
 
 function usage(rc: number): void {
   console.error('Usage:');
-  console.error('  tools/gen [SUITES...]');
-  console.error('  tools/gen cts unittests');
+  console.error('  tools/gen_listings [SUITES...]');
+  console.error('  tools/gen_listings cts unittests');
   process.exit(rc);
 }
 
