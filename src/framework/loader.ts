@@ -17,7 +17,7 @@ export interface ReadmeFile {
 
 export type TestSpecOrReadme = TestSpec | ReadmeFile;
 
-export type TestFilterResultIterator = IterableIterator<TestFilterResult>;
+type TestFilterResultIterator = IterableIterator<TestFilterResult>;
 function* concat(lists: TestFilterResult[][]): TestFilterResultIterator {
   for (const specs of lists) {
     yield* specs;

@@ -1,8 +1,7 @@
 import { TestSpecOrTestOrCaseID } from './id.js';
-import { TestFilterResultIterator } from './loader.js';
 import { Logger } from './logger.js';
 import { FilterByGroup } from './test_filter/filter_by_group.js';
-import { makeFilter } from './test_filter/index.js';
+import { TestFilterResult, makeFilter } from './test_filter/index.js';
 import { FilterResultTreeNode, treeFromFilterResults } from './tree.js';
 
 interface QuerySplitterTreeNode {
@@ -17,7 +16,7 @@ interface Expectation {
 }
 
 function makeQuerySplitterTree(
-  caselist: TestFilterResultIterator,
+  caselist: TestFilterResult[],
   expectationStrings: string[]
 ): QuerySplitterTreeNode {
   const expectations: Expectation[] = [];
@@ -61,7 +60,7 @@ function makeQuerySplitterTree(
   };
 
   const log = new Logger();
-  const tree = treeFromFilterResults(log, caselist);
+  const tree = treeFromFilterResults(log, caselist.values());
   const queryTree = convertToQuerySplitterTree(tree.children)!;
 
   for (const e of expectations) {
@@ -81,7 +80,7 @@ function makeQuerySplitterTree(
 // It does this by creating a tree from the list of cases (same tree as the standalone runner uses),
 // then marking every node which is a parent of a node that matches an expectation.
 export async function generateMinimalQueryList(
-  caselist: TestFilterResultIterator,
+  caselist: TestFilterResult[],
   expectationStrings: string[]
 ): Promise<string[]> {
   const unsplitNodes: string[] = [];

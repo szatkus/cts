@@ -10,67 +10,101 @@ import { listing } from '../suites/cts/index.js';
 function usage(rc: number): void {
   console.error(`\
 Usage:
-  tools/gen_wpt_cts_html TEMPLATE_FILE OUTPUT_FILE [EXPECTATIONS_FILE PREFIX SUITE]
-  tools/gen_wpt_cts_html templates/cts.html out-wpt/cts.html
-  tools/gen_wpt_cts_html ./out-wpt/cts.html templates/cts.html myexpectations.txt 'path/to/cts.html?q=' cts
+  tools/gen_wpt_cts_html TEMPLATE_FILE OUTPUT_FILE [ARGUMENTS_PREFIXES_FILE EXPECTATIONS_FILE EXPECTATIONS_PREFIX SUITE]
+  tools/gen_wpt_cts_html out-wpt/cts.html templates/cts.html
+  tools/gen_wpt_cts_html my/path/to/cts.html templates/cts.html arguments.txt myexpectations.txt 'path/to/cts.html' cts
 
-where myexpectations.txt is a file containing a list of WPT paths to suppress, e.g.:
+where arguments.txt is a file containing a list of arguments prefixes to both generate and expect
+in the expectations. The entire variant list generation runs *once per prefix*, so this
+multiplies the size of the variant list.
 
-  path/to/cts.html?q=cts:a/bar:bar1={"x":1}
-  path/to/cts.html?q=cts:a/bar:bar1={"x":3}
+  ?worker=0&q=
+  ?worker=1&q=
+
+and myexpectations.txt is a file containing a list of WPT paths to suppress, e.g.:
+
+  path/to/cts.html?worker=0&q=cts:a/foo:bar={"x":1}
+  path/to/cts.html?worker=1&q=cts:a/foo:bar={"x":1}
+
+  path/to/cts.html?worker=1&q=cts:a/foo:bar={"x":3}
 `);
   process.exit(rc);
 }
 
-if (process.argv.length !== 4 && process.argv.length !== 7) {
+if (process.argv.length !== 4 && process.argv.length !== 8) {
   usage(0);
 }
 const outFile = process.argv[2];
 const templateFile = process.argv[3];
 
 (async () => {
-  if (process.argv.length === 7) {
-    const expectationsFile = process.argv[4];
-    const prefix = process.argv[5];
-    const suite = process.argv[6];
-
-    const expectationLines = (await fs.readFile(expectationsFile, 'utf8')).split('\n');
-
-    const expectations: string[] = [];
-    for (const exp of expectationLines) {
-      if (!exp) continue;
-      if (!exp.startsWith(prefix)) {
-        throw new Error('All input lines must start with PREFIX. ' + exp);
-      }
-
-      const expectation = exp.substring(prefix.length);
-      expectations.push(expectation);
-    }
-
-    const loader = new TestLoader();
-    const files = await loader.loadTestsFromCmdLine([suite + ':']);
-
-    const lines = await generateMinimalQueryList(files, expectations);
-    await generateFile(lines);
-  } else {
+  if (process.argv.length === 4) {
     const entries = (await listing) as TestSuiteListingEntry[];
     const lines = entries
       // Exclude READMEs.
       .filter(l => l.path.length !== 0 && !l.path.endsWith('/'))
       .map(l => l.path);
     await generateFile(lines);
+  } else {
+    const argsPrefixesFile = process.argv[4];
+    const expectationsFile = process.argv[5];
+    const expectationsPrefix = process.argv[6];
+    const suite = process.argv[7];
+
+    // Prefixes sorted from longest to shortest
+    const argsPrefixes = (await fs.readFile(argsPrefixesFile, 'utf8'))
+      .split('\n')
+      .filter(a => a.length)
+      .sort((a, b) => b.length - a.length);
+    const expectationLines = (await fs.readFile(expectationsFile, 'utf8'))
+      .split('\n')
+      .filter(l => l.length);
+
+    const expectations: Map<string, string[]> = new Map();
+    for (const prefix of argsPrefixes) {
+      expectations.set(prefix, []);
+    }
+
+    expLoop: for (const exp of expectationLines) {
+      // Take each expectation for the longest prefix it matches.
+      for (const argsPrefix of argsPrefixes) {
+        const prefix = expectationsPrefix + argsPrefix;
+        if (exp.startsWith(prefix)) {
+          expectations.get(argsPrefix)!.push(exp.substring(prefix.length));
+          continue expLoop;
+        }
+      }
+      throw new Error('All input lines must start with one of the prefixes. ' + exp);
+    }
+
+    const loader = new TestLoader();
+    const files = Array.from(await loader.loadTestsFromCmdLine([suite + ':']));
+
+    const lines = [];
+    for (const prefix of argsPrefixes) {
+      lines.push(undefined);
+      for (const q of await generateMinimalQueryList(files, expectations.get(prefix)!)) {
+        lines.push(prefix + q);
+      }
+    }
+    await generateFile(lines);
   }
 })();
 
-async function generateFile(lines: string[]): Promise<void> {
+async function generateFile(lines: Array<string | undefined>): Promise<void> {
   let result = '';
-  result += '<!-- AUTO-GENERATED - DO NOT EDIT. See gen_wpt_cts_html.ts. -->\n';
+  result += `\
+<!-- AUTO-GENERATED - DO NOT EDIT. See WebGPU CTS: tools/gen_wpt_cts_html.
+     Template: ${templateFile} -->\n`;
 
   result += await fs.readFile(templateFile, 'utf8');
-  result += '\n';
 
   for (const line of lines) {
-    result += `<meta name=variant content='?q=${line}'>\n`;
+    if (line === undefined) {
+      result += '\n';
+    } else {
+      result += `<meta name=variant content='${line}'>\n`;
+    }
   }
 
   await fs.writeFile(outFile, result);
